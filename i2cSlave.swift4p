@@ -1,0 +1,4 @@
+files:
+- i2cSlave.swift
+- Package.swift
+- module.modulemap
