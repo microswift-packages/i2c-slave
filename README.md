@@ -58,27 +58,44 @@ of data to send.
 
 ### Recommendations for use
 
-The recommended use is polling (interrupt driven is NOT preferred).
+The recommended use is polling.
+
+Interrupt driven is NOT better unless you have a specific low power requirement such as sleeping between handling i2c
+ requests, in a very low power/sporadically used peripheral...
+ interrupt driven is probably pointless complexity and risk unless saving 10mA power is very important.
+
+If you must use interrupt driven then put the while loop code below into an I2C interrupt handler.
 
 
 ```
-    /// let receiveBuffer = // allocate and test allocation for slave receive buffer
-    /// let sendBuffer = // allocate and test allocation for slave send buffer
-    /// ...event handler loop...
-    /// while true {
-    ///   if ATmega328P.Twi.waitForHardware(timeout: 50_000) {
-    ///     if let receiveBuffer {
-    ///       ATmega328P.Twi.handleTwiSlaveReceiveEvent(buffer: receiveBuffer, timeout: 50_000) {
-    ///         // handle slave buffer in $0, with byte count in $1
-    ///         // (the count will always be <= the buffer size... if the buffer gets filled, the function will NACK and not read any more bytes)
-    ///       }
-    ///     }
-    ///
-    ///     if let sendBuffer {
-    ///       ATmega328P.Twi.handleTwiSlaveTransmitEvent(timeout: 50_000) {
-    ///         // return the buffer to transmit, you are responsible for lifetime and memory management of this buffer
-    ///       }
-    ///     }
-    ///   }
-    /// }
+if let receiveBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(...)
+// allocate and test allocation for slave receive buffer... stop the program with an error if it fails and is needed
+
+if let sendBuffer = UnsafeMutableBufferPointer<UInt8>.allocate(...)
+// allocate and test allocation for slave send buffer... stop the program with an error if it fails and is needed
+
+/// ...event handler loop...
+while mainLoopRunning {
+  if ATmega328P.Twi.waitForHardware(timeout: 50_000) {
+    ATmega328P.Twi.handleTwiSlaveReceiveEvent(buffer: receiveBuffer, timeout: 50_000) {
+      // handle slave buffer in $0, with byte count in $1
+      // (the count will always be <= the buffer size... if the buffer gets filled, the function will NACK and not read any more bytes)
+    }
+
+    ATmega328P.Twi.handleTwiSlaveTransmitEvent(timeout: 50_000) {
+      // return the buffer to transmit, you are responsible for lifetime and memory management of this buffer
+      // usually the best pattern is keep one top level buffer, fill the contents on each call
+
+      // if you need to return different sized buffers on each call, you might need to allocate and release on each
+      // call, however be warned - DO NOT allocate and release heap buffers inside an interrupt handler!!
+      // definitely consider switching to polling if you are using interrupt handling and you decide to follow this
+      // pattern.... if you do not have anything running on the slave except the slave I2C interrupt handler then
+      // it *might* be safe, as interrupts are non re-entrant and the main program won't be using the heap itself.
+      // But in that case why not just move to polling and have the main loop handle it anyway? Aside from rare use/
+      // low power niche cases, you're just adding pointless complexity and risk.
+
+      return sendBuffer
+    }
+  }
+}
 ```
